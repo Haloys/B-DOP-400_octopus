@@ -1,0 +1,16 @@
+---
+- name: Simple Ansible test
+  hosts: localhost
+  connection: local
+  become: false
+
+  tasks:
+    - name: Check Ansible connectivity
+      ping:
+    - name: Get OS information
+      command: uname -a
+      register: os_info
+      changed_when: false
+    - name: Display OS information
+      debug:
+        var: os_info.stdout
