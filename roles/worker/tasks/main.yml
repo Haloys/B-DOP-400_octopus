@@ -1,0 +1,47 @@
+- name: Install OpenJDK and Maven
+  apt:
+    name:
+      - openjdk-17-jdk
+      - maven
+    state: present
+
+- name: Create worker application directory
+  file:
+    path: /opt/worker-app
+    state: directory
+    mode: '0755'
+
+- name: Extract worker application
+  unarchive:
+    src: "{{ playbook_dir }}/worker.tar"
+    dest: /opt/worker-app
+    mode: '0755'
+    remote_src: no
+
+- name: Build worker with Maven
+  command:
+    chdir: /opt/worker-app
+    cmd: mvn -B clean package assembly:single
+  args:
+    creates: /opt/worker-app/target/worker-jar-with-dependencies.jar
+
+- name: Create systemd service file for worker app
+  copy:
+    src: worker.service
+    dest: /etc/systemd/system/worker.service
+    mode: '0644'
+  register: worker_service_changed
+
+- name: Restart Worker Service if service config changed
+  systemd:
+    name: worker
+    state: restarted
+    daemon_reload: yes
+  when: worker_service_changed.changed
+
+- name: Ensure worker service is enabled and started
+  systemd:
+    name: worker
+    enabled: yes
+    state: started
+    daemon_reload: yes

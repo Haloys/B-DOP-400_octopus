@@ -1,0 +1,15 @@
+[Unit]
+Description=Poll Web Application
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/poll-app
+ExecStart=/usr/bin/python3 app.py
+Environment=REDIS_HOST={{ redis_host }}
+Environment=REDIS_PORT={{ redis_port }}
+Environment=OPTION_A=Cats
+Environment=OPTION_B=Dogs
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

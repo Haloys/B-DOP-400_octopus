@@ -1,0 +1,36 @@
+- name: Install Git
+  apt:
+    name: git
+    state: present
+    update_cache: yes
+
+- name: Install Python and pip
+  apt:
+    state: present
+    name:
+      - python3
+      - python3-pip
+      - python3-setuptools
+
+- name: Install curl and basic utilities
+  apt:
+    state: present
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+
+- name: Install UFW
+  apt:
+    state: present
+    name: ufw
+
+- name: Allow SSH through firewall
+  ufw:
+    rule: allow
+    name: OpenSSH
+
+- name: Enable firewall
+  ufw:
+    state: enabled
+    policy: deny

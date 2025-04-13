@@ -1,0 +1,18 @@
+[Unit]
+Description=Worker Service
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/worker-app
+ExecStart=/usr/bin/java -jar target/worker-jar-with-dependencies.jar
+Environment=REDIS_HOST={{ redis_host }}
+Environment=REDIS_PORT={{ redis_port }}
+Environment=DB_HOST={{ postgresql_host }}
+Environment=DB_PORT=5432
+Environment=DB_USER={{ postgresql_user }}
+Environment=DB_PASSWORD={{ postgresql_password }}
+Environment=DB_NAME={{ postgresql_db }}
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

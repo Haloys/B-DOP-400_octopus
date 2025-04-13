@@ -1,0 +1,41 @@
+- name: Apply base configuration to all nodes
+  hosts: all
+  become: yes
+  serial: 1
+  roles:
+    - base
+
+- name: Configure Redis server
+  hosts: redis
+  become: yes
+  serial: 1
+  roles:
+    - redis
+
+- name: Configure PostgreSQL server
+  hosts: postgresql
+  become: yes
+  serial: 1
+  roles:
+    - postgresql
+
+- name: Configure poll application
+  hosts: poll
+  become: yes
+  serial: 1
+  roles:
+    - poll
+
+- name: Configure worker application
+  hosts: worker
+  become: yes
+  serial: 1
+  roles:
+    - worker
+
+- name: Configure result application
+  hosts: result
+  become: yes
+  serial: 1
+  roles:
+    - result

@@ -1,0 +1,76 @@
+- name: Install prerequisites for PostgreSQL repository
+  apt:
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+    state: present
+
+- name: Add PostgreSQL apt repository key
+  apt_key:
+    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    state: present
+
+- name: Add PostgreSQL 16 repository
+  apt_repository:
+    repo: deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main
+    state: present
+    filename: pgdg
+
+- name: Install PostgreSQL 16
+  apt:
+    name: postgresql-16
+    state: present
+    update_cache: yes
+
+- name: Copy PostgreSQL client authentication configuration file
+  copy:
+    src: pg_hba.conf
+    dest: /etc/postgresql/16/main/pg_hba.conf
+    owner: postgres
+    group: postgres
+    mode: '0640'
+  register: pg_hba_changed
+
+- name: Enable remote connections to PostgreSQL
+  lineinfile:
+    dest: /etc/postgresql/16/main/postgresql.conf
+    regexp: "^#listen_addresses"
+    line: "listen_addresses = '*'"
+  register: pg_listen_changed
+
+- name: Restart PostgreSQL if config changed
+  service:
+    name: postgresql
+    state: restarted
+  when: pg_hba_changed.changed or pg_listen_changed.changed
+
+- name: Create PostgreSQL user
+  become: yes
+  become_user: postgres
+  postgresql_user:
+    name: "{{ postgresql_user }}"
+    password: "{{ postgresql_password }}"
+    state: present
+  no_log: true
+
+- name: Create PostgreSQL database
+  become: yes
+  become_user: postgres
+  postgresql_db:
+    name: "{{ postgresql_db }}"
+    owner: "{{ postgresql_user }}"
+    state: present
+
+- name: Initialize database schema
+  become: yes
+  become_user: postgres
+  postgresql_query:
+    db: "{{ postgresql_db }}"
+    path_to_script: "{{ playbook_dir }}/roles/postgresql/files/schema.sql"
+
+- name: Ensure PostgreSQL service is enabled
+  service:
+    name: postgresql
+    enabled: yes
+    state: started
