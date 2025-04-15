@@ -3,6 +3,7 @@
     name:
       - python3
       - python3-pip
+      - python3-venv
     state: present
 
 - name: Create poll application directory
@@ -18,14 +19,21 @@
     mode: '0755'
     remote_src: no
 
-- name: Install Python dependencies
+- name: Create Python virtual environment
+  pip:
+    name: pip
+    virtualenv: /opt/poll-app/venv
+    virtualenv_command: python3 -m venv
+
+- name: Install Python dependencies in virtual environment
   pip:
     requirements: /opt/poll-app/requirements.txt
     state: present
+    virtualenv: /opt/poll-app/venv
 
 - name: Create systemd service file for poll app
-  copy:
-    src: poll.service
+  template:
+    src: files/poll.service
     dest: /etc/systemd/system/poll.service
     mode: '0644'
   register: poll_service_changed

@@ -29,34 +29,55 @@ show_help() {
     echo -e "  ${BLUE}deploy${NC}        - Run playbook against production inventory"
     echo -e "  ${BLUE}check-idempotence${NC} - Run playbook twice to test idempotence"
     echo -e "  ${BLUE}prepare${NC}       - Extract ZIP and create tarballs"
-    echo -e "  ${BLUE}vm-setup${NC}      - Create and start Vagrant VMs for testing"
-    echo -e "  ${BLUE}vm-stop${NC}       - Stop Vagrant VMs"
-    echo -e "  ${BLUE}vm-destroy${NC}    - Remove Vagrant VMs"
+    echo -e "  ${BLUE}update-inventory${NC} - Update inventory with Azure VM IPs"
     echo ""
 }
 
 setup_env() {
     show_header
     echo -e "${YELLOW}Setting up environment...${NC}"
-    if [ ! -f ~/.vault_pass ]; then
-        echo -n "Enter a secure vault password: "
-        read -s VAULT_PASS
-        echo
-        echo "$VAULT_PASS" > ~/.vault_pass
-        chmod 600 ~/.vault_pass
-        echo -e "${GREEN}Vault password file created at ~/.vault_pass${NC}"
-    else
-        echo -e "${YELLOW}Vault password file already exists at ~/.vault_pass${NC}"
+    echo -n "Enter a secure vault password (default: verySecretPassword): "
+    read -s VAULT_PASS
+    echo
+    
+    if [ -z "$VAULT_PASS" ]; then
+        VAULT_PASS="verySecretPassword"
     fi
-    export ANSIBLE_VAULT_PASSWORD_FILE=~/.vault_pass
-    echo "export ANSIBLE_VAULT_PASSWORD_FILE=~/.vault_pass" >> ~/.bashrc
+    
+    echo "$VAULT_PASS" > /tmp/.vault_pass
+    chmod 600 /tmp/.vault_pass
+    echo -e "${GREEN}Vault password file created at /tmp/.vault_pass${NC}"
+    
+    export ANSIBLE_VAULT_PASSWORD_FILE=/tmp/.vault_pass
+    
+    CURRENT_SHELL=$(basename "$SHELL")
+    
+    case "$CURRENT_SHELL" in
+        bash)
+            RC_FILE=~/.bashrc
+            ;;
+        zsh)
+            RC_FILE=~/.zshrc
+            ;;
+        *)
+            echo -e "${YELLOW}Could not determine your shell's RC file. Using ~/.profile instead.${NC}"
+            RC_FILE=~/.profile
+            ;;
+    esac
+    
+    if ! grep -q "ANSIBLE_VAULT_PASSWORD_FILE=/tmp/.vault_pass" "$RC_FILE"; then
+        echo "export ANSIBLE_VAULT_PASSWORD_FILE=/tmp/.vault_pass" >> "$RC_FILE"
+        echo -e "${GREEN}Environment variable added to $RC_FILE${NC}"
+    fi
+    
     echo -e "${GREEN}Environment configured!${NC}"
+    echo -e "${YELLOW}You can now run:${NC} source $RC_FILE"
 }
 
 encrypt_string() {
     show_header
     echo -e "${YELLOW}Encrypt a string for use in Ansible variables${NC}"
-    if [ ! -f ~/.vault_pass ]; then
+    if [ ! -f /tmp/.vault_pass ]; then
         echo -e "${RED}Vault password file not found. Run 'setup' first.${NC}"
         exit 1
     fi
@@ -65,7 +86,7 @@ encrypt_string() {
     echo
     echo -n "Enter the variable name: "
     read VAR_NAME
-    ENCRYPTED=$(ansible-vault encrypt_string "$SECRET_STRING" --name "$VAR_NAME" 2>/dev/null)
+    ENCRYPTED=$(ANSIBLE_VAULT_PASSWORD_FILE=/tmp/.vault_pass ansible-vault encrypt_string "$SECRET_STRING" --name "$VAR_NAME" 2>/dev/null)
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}Encrypted string:${NC}"
         echo "$ENCRYPTED"
@@ -78,11 +99,20 @@ encrypt_string() {
 test_playbook() {
     show_header
     echo -e "${YELLOW}Running playbook against test inventory...${NC}"
-    if [ ! -f inventory_localhost ]; then
-        echo -e "${RED}Test inventory not found. Create inventory_localhost first.${NC}"
+    if [ ! -f production ]; then
+        echo -e "${RED}Test inventory not found. Create production first.${NC}"
         exit 1
     fi
-    ansible-playbook -i inventory_localhost playbook.yml -K
+    
+    if [ ! -f /tmp/.vault_pass ]; then
+        echo -e "${YELLOW}Vault password file not found, creating it with default password...${NC}"
+        echo "verySecretPassword" > /tmp/.vault_pass
+        chmod 600 /tmp/.vault_pass
+    fi
+    
+    export ANSIBLE_VAULT_PASSWORD_FILE=/tmp/.vault_pass
+    
+    ansible-playbook -i production playbook.yml --vault-password-file=/tmp/.vault_pass
     echo -e "${GREEN}Test run completed!${NC}"
 }
 
@@ -100,21 +130,39 @@ deploy_playbook() {
         echo -e "${RED}Production inventory not found. The file should be named 'production'.${NC}"
         exit 1
     fi
-    ansible-playbook -i production playbook.yml
+    
+    if [ ! -f /tmp/.vault_pass ]; then
+        echo -e "${YELLOW}Vault password file not found, creating it with default password...${NC}"
+        echo "verySecretPassword" > /tmp/.vault_pass
+        chmod 600 /tmp/.vault_pass
+    fi
+    
+    export ANSIBLE_VAULT_PASSWORD_FILE=/tmp/.vault_pass
+    
+    ansible-playbook -i production playbook.yml --vault-password-file=/tmp/.vault_pass
     echo -e "${GREEN}Deployment completed!${NC}"
 }
 
 check_idempotence() {
     show_header
     echo -e "${YELLOW}Testing idempotence...${NC}"
-    if [ ! -f inventory_localhost ]; then
-        echo -e "${RED}Test inventory not found. Create inventory_localhost first.${NC}"
+    if [ ! -f production ]; then
+        echo -e "${RED}Test inventory not found. Create production first.${NC}"
         exit 1
     fi
+    
+    if [ ! -f /tmp/.vault_pass ]; then
+        echo -e "${YELLOW}Vault password file not found, creating it with default password...${NC}"
+        echo "verySecretPassword" > /tmp/.vault_pass
+        chmod 600 /tmp/.vault_pass
+    fi
+    
+    export ANSIBLE_VAULT_PASSWORD_FILE=/tmp/.vault_pass
+    
     echo -e "${BLUE}First run:${NC}"
-    ansible-playbook -i inventory_localhost playbook.yml
+    ansible-playbook -i production playbook.yml --vault-password-file=/tmp/.vault_pass
     echo -e "${BLUE}Second run (should show minimal changes):${NC}"
-    ansible-playbook -i inventory_localhost playbook.yml
+    ansible-playbook -i production playbook.yml --vault-password-file=/tmp/.vault_pass
     echo -e "${GREEN}Idempotence test completed!${NC}"
     echo -e "${YELLOW}Look at the PLAY RECAP above. The 'changed' count should be 0 or very low in the second run.${NC}"
 }
@@ -180,118 +228,126 @@ prepare_files() {
     echo -e "${GREEN}All application files prepared successfully!${NC}"
 }
 
-get_ssh_key() {
-    echo "$1" | grep "$2 " | cut -d" " -f 4
-}
-
-vm_setup() {
+update_inventory() {
     show_header
-    echo -e "${YELLOW}Setting up and starting Vagrant VMs for Octopus testing...${NC}"
-    if ! command -v vagrant &> /dev/null; then
-        echo -e "${RED}Vagrant not found. Please install Vagrant first.${NC}"
-        echo -e "${BLUE}Visit https://www.vagrantup.com/downloads for installation instructions.${NC}"
-        exit 1
-    fi
-    mkdir -p production
-    echo -e "${BLUE}Creating Vagrantfile...${NC}"
-    cat > Vagrantfile << 'EOF'
-IMAGE = "debian/bookworm64"
-VM_COUNT = 5
-Vagrant.configure("2") do |config|
-  (1..VM_COUNT).each do |i|
-    config.vm.define "VM#{i}" do |subconfig|
-      subconfig.vm.box = IMAGE
-      subconfig.vm.hostname = "VM#{i}"
-      subconfig.vm.network "private_network", ip: "192.168.56.#{i+9}"
-      subconfig.vm.provider "virtualbox" do |vb|
-        # More memory for PostgreSQL and Worker
-        if i == 2 || i == 4
-          vb.memory = "1024"
-        else
-          vb.memory = "512"
-        end
-        vb.cpus = 1
-      end
-    end
-  end
-  config.vm.define "VM1" do |result|
-    result.vm.network "forwarded_port", guest: 80, host: 5001
-  end
-  config.vm.define "VM3" do |poll|
-    poll.vm.network "forwarded_port", guest: 80, host: 5000
-  end
-end
-EOF
-    echo -e "${GREEN}✓ Vagrantfile created${NC}"
-    echo -e "${BLUE}Starting VMs (this may take several minutes)...${NC}"
-    vagrant up
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}Error starting VMs. Please check Vagrant output for details.${NC}"
-        exit 1
-    fi
-    echo -e "${BLUE}Generating Ansible inventory from VM configurations...${NC}"
-    services=("result" "postgresql" "poll" "redis" "worker")
-    sshVar=("HostName:host" "Port:port" "User:user" "IdentityFile:ssh_private_key_file")
-    host="production"
-    echo "[redis]" > $host
-    echo "[postgresql]" >> $host
-    echo "[poll]" >> $host
-    echo "[worker]" >> $host
-    echo "[result]" >> $host
-    echo "" >> $host
-    echo "[all:vars]" >> $host
-    echo "ansible_become=yes" >> $host
-    echo "ansible_become_method=sudo" >> $host
-    for vm in $(seq 1 5)
-    do
-        service=${services[$vm - 1]}
-        sshconfig=$(vagrant ssh-config VM$vm 2>/dev/null)
-        if [ -z "$sshconfig" ]; then
-            echo -e "${RED}ERROR: Could not get SSH config for VM$vm${NC}"
+    echo -e "${YELLOW}Updating inventory file with Azure VM IPs...${NC}"
+    echo "Do you have different SSH keys for different VM groups? (y/N): "
+    read MULTIPLE_KEYS
+    echo "Enter Azure username (default: ansible): "
+    read AZURE_USER
+    AZURE_USER=${AZURE_USER:-ansible}
+    echo "Redis VM IP: "
+    read REDIS_IP
+    echo "PostgreSQL VM IP: "
+    read POSTGRESQL_IP
+    echo "Poll VM IP: "
+    read POLL_IP
+    echo "Worker VM IP: "
+    read WORKER_IP
+    echo "Result VM IP: "
+    read RESULT_IP
+    if [[ "$MULTIPLE_KEYS" == "y" || "$MULTIPLE_KEYS" == "Y" ]]; then
+        echo -e "${BLUE}Setting up multiple SSH keys...${NC}"
+        
+        echo "Enter SSH key path for small VMs (Redis, Poll, Result): "
+        read SMALL_KEY_PATH
+        if [ ! -f "$SMALL_KEY_PATH" ]; then
+            echo -e "${RED}SSH key file not found at $SMALL_KEY_PATH${NC}"
             exit 1
         fi
-        hostname="${service}-1"
-        host_line="$hostname "
-        for var in "${sshVar[@]}"
-        do
-            res=$(get_ssh_key "$sshconfig" ${var%%:*})
-            host_line+="ansible_${var#*:}=$res "
-        done
-        sed -i "/\[$service\]/a $host_line" $host
-    done
-    echo -e "${GREEN}✓ Inventory file generated at $host${NC}"
-    echo -e "${GREEN}VMs started and inventory configured!${NC}"
-    echo -e "${YELLOW}To run your playbook on these VMs, use:${NC}"
-    echo -e "${BLUE}ansible-playbook -i production playbook.yml${NC}"
-}
+        
+        echo "Enter SSH key path for large VMs (PostgreSQL, Worker): "
+        read LARGE_KEY_PATH
+        if [ ! -f "$LARGE_KEY_PATH" ]; then
+            echo -e "${RED}SSH key file not found at $LARGE_KEY_PATH${NC}"
+            exit 1
+        fi
+        cat > production << EOF
+[redis]
+redis-1 ansible_host=${REDIS_IP} ansible_ssh_private_key_file=${SMALL_KEY_PATH}
 
-vm_stop() {
-    show_header
-    echo -e "${YELLOW}Stopping Vagrant VMs...${NC}"
-    if [ ! -f Vagrantfile ]; then
-        echo -e "${RED}Vagrantfile not found. Run 'vm-setup' first.${NC}"
-        exit 1
-    fi
-    vagrant halt
-    echo -e "${GREEN}VMs stopped!${NC}"
-}
+[postgresql]
+postgresql-1 ansible_host=${POSTGRESQL_IP} ansible_ssh_private_key_file=${LARGE_KEY_PATH}
 
-vm_destroy() {
-    show_header
-    echo -e "${YELLOW}Destroying Vagrant VMs...${NC}"
-    if [ ! -f Vagrantfile ]; then
-        echo -e "${RED}Vagrantfile not found. Nothing to destroy.${NC}"
-        exit 1
+[poll]
+poll-1 ansible_host=${POLL_IP} ansible_ssh_private_key_file=${SMALL_KEY_PATH}
+
+[worker]
+worker-1 ansible_host=${WORKER_IP} ansible_ssh_private_key_file=${LARGE_KEY_PATH}
+
+[result]
+result-1 ansible_host=${RESULT_IP} ansible_ssh_private_key_file=${SMALL_KEY_PATH}
+
+[small:children]
+redis
+poll
+result
+
+[large:children]
+postgresql
+worker
+
+[all:vars]
+ansible_user=${AZURE_USER}
+ansible_become=yes
+ansible_become_method=sudo
+EOF
+    else
+        echo "Enter path to SSH private key for all Azure VMs (e.g. ~/.ssh/octopus_key): "
+        read SSH_KEY_PATH
+        if [ ! -f "$SSH_KEY_PATH" ]; then
+            echo -e "${RED}SSH key file not found at $SSH_KEY_PATH${NC}"
+            exit 1
+        fi
+        cat > production << EOF
+[redis]
+redis-1 ansible_host=${REDIS_IP}
+
+[postgresql]
+postgresql-1 ansible_host=${POSTGRESQL_IP}
+
+[poll]
+poll-1 ansible_host=${POLL_IP}
+
+[worker]
+worker-1 ansible_host=${WORKER_IP}
+
+[result]
+result-1 ansible_host=${RESULT_IP}
+
+[all:vars]
+ansible_user=${AZURE_USER}
+ansible_become=yes
+ansible_become_method=sudo
+ansible_ssh_private_key_file=${SSH_KEY_PATH}
+EOF
     fi
-    echo -e "${RED}WARNING: This will destroy all VMs and their data.${NC}"
-    echo -n "Are you sure you want to continue? (y/N): "
-    read CONFIRM
-    if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
-        echo -e "${YELLOW}Destruction cancelled.${NC}"
-        exit 0
+    
+    echo -e "${GREEN}✓ Inventory file 'production' created with Azure VM IPs${NC}"
+    echo -e "${YELLOW}Testing SSH connectivity to all hosts...${NC}"
+    
+    export ANSIBLE_HOST_KEY_CHECKING=False
+    ansible -i production all -m ping
+    
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✓ All hosts are reachable${NC}"
+    else
+        echo -e "${RED}× Some hosts are not reachable. Please check your network connections and SSH keys.${NC}"
+        echo -e "${YELLOW}Trying to ping individual groups...${NC}"
+        
+        if [[ "$MULTIPLE_KEYS" == "y" || "$MULTIPLE_KEYS" == "Y" ]]; then
+            echo -e "${BLUE}Testing small VMs group (Redis, Poll, Result)...${NC}"
+            ansible -i production small -m ping
+            
+            echo -e "${BLUE}Testing large VMs group (PostgreSQL, Worker)...${NC}"
+            ansible -i production large -m ping
+        else
+            for group in redis postgresql poll worker result; do
+                echo -e "${BLUE}Testing $group group...${NC}"
+                ansible -i production $group -m ping
+            done
+        fi
     fi
-    vagrant destroy -f
-    echo -e "${GREEN}VMs destroyed!${NC}"
 }
 
 if [ $# -eq 0 ]; then
@@ -319,14 +375,8 @@ case "$1" in
     prepare)
         prepare_files
         ;;
-    vm-setup)
-        vm_setup
-        ;;
-    vm-stop)
-        vm_stop
-        ;;
-    vm-destroy)
-        vm_destroy
+    update-inventory)
+        update_inventory
         ;;
     help)
         show_header

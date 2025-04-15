@@ -7,11 +7,11 @@ WorkingDirectory=/opt/worker-app
 ExecStart=/usr/bin/java -jar target/worker-jar-with-dependencies.jar
 Environment=REDIS_HOST={{ redis_host }}
 Environment=REDIS_PORT={{ redis_port }}
-Environment=DB_HOST={{ postgresql_host }}
-Environment=DB_PORT=5432
-Environment=DB_USER={{ postgresql_user }}
-Environment=DB_PASSWORD={{ postgresql_password }}
-Environment=DB_NAME={{ postgresql_db }}
+Environment=POSTGRES_HOST={{ postgresql_host }}
+Environment=POSTGRES_PORT=5432
+Environment=POSTGRES_USER={{ postgresql_user }}
+Environment=POSTGRES_PASSWORD={{ postgresql_password }}
+Environment=POSTGRES_DB={{ postgresql_db }}
 Restart=always
 
 [Install]

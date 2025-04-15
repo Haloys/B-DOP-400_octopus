@@ -2,19 +2,36 @@
   apt:
     name: redis-server
     state: present
+    update_cache: yes
+
+- name: Check if Redis is already configured to bind to all interfaces
+  command: grep -q "^bind 0.0.0.0" /etc/redis/redis.conf
+  register: redis_bind_check
+  changed_when: false
+  failed_when: false
 
 - name: Configure Redis to bind to all interfaces
   lineinfile:
     path: /etc/redis/redis.conf
     regexp: '^bind'
     line: 'bind 0.0.0.0'
-  register: redis_config_changed
+    state: present
+  register: redis_bind_changed
+  when: redis_bind_check.rc != 0
 
-- name: Restart Redis if config changed
+- name: Ensure protected mode is disabled
+  lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: '^protected-mode'
+    line: 'protected-mode no'
+    state: present
+  register: redis_protected_mode_changed
+
+- name: Stop Redis service before reconfiguration
   service:
     name: redis-server
-    state: restarted
-  when: redis_config_changed.changed
+    state: stopped
+  when: redis_bind_changed.changed or redis_protected_mode_changed is changed
 
 - name: Ensure Redis service is enabled and started
   service:

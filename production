@@ -1,0 +1,28 @@
+[redis]
+redis-1 ansible_host=20.39.38.161 ansible_ssh_private_key_file=/home/zoral/.ssh/octopus_key
+
+[postgresql]
+postgresql-1 ansible_host=172.173.225.186 ansible_ssh_private_key_file=/home/zoral/.ssh/octopus_haloys_key
+
+[poll]
+poll-1 ansible_host=172.172.173.17 ansible_ssh_private_key_file=/home/zoral/.ssh/octopus_key
+
+[worker]
+worker-1 ansible_host=172.172.145.10 ansible_ssh_private_key_file=/home/zoral/.ssh/octopus_haloys_key
+
+[result]
+result-1 ansible_host=20.168.242.18 ansible_ssh_private_key_file=/home/zoral/.ssh/octopus_key
+
+[small:children]
+redis
+poll
+result
+
+[large:children]
+postgresql
+worker
+
+[all:vars]
+ansible_user=ansible
+ansible_become=yes
+ansible_become_method=sudo

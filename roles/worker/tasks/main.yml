@@ -1,15 +1,18 @@
-- name: Install OpenJDK and Maven
-  apt:
-    name:
-      - openjdk-17-jdk
-      - maven
-    state: present
-
-- name: Create worker application directory
+- name: Create the directory
   file:
     path: /opt/worker-app
     state: directory
-    mode: '0755'
+    mode: 0755
+
+- name: Download the Java JDK tar
+  get_url:
+    url: https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.deb
+    dest: /tmp/jdk-21_linux-x64_bin.deb
+
+- name: Install Java JDK
+  apt:
+    deb: /tmp/jdk-21_linux-x64_bin.deb
+    state: present
 
 - name: Extract worker application
   unarchive:
@@ -18,24 +21,32 @@
     mode: '0755'
     remote_src: no
 
-- name: Build worker with Maven
-  command:
-    chdir: /opt/worker-app
-    cmd: mvn -B clean package assembly:single
+- name: Install Maven
+  apt:
+    name: maven
+    state: present
+    update_cache: no
+
+- name: Find JDK installation directory
+  shell: "find /usr/lib/jvm -maxdepth 1 -name 'jdk*' | head -n 1"
+  register: jdk_dir
+  changed_when: false
+
+- name: Build Maven project
+  shell: "JAVA_HOME={{ jdk_dir.stdout }} mvn -B clean package"
   args:
-    creates: /opt/worker-app/target/worker-jar-with-dependencies.jar
+    chdir: /opt/worker-app
+  when: jdk_dir.stdout != ""
 
 - name: Create systemd service file for worker app
-  copy:
-    src: worker.service
+  template:
+    src: files/worker.service
     dest: /etc/systemd/system/worker.service
     mode: '0644'
   register: worker_service_changed
 
-- name: Restart Worker Service if service config changed
+- name: Reload systemd daemon
   systemd:
-    name: worker
-    state: restarted
     daemon_reload: yes
   when: worker_service_changed.changed
 
@@ -44,4 +55,3 @@
     name: worker
     enabled: yes
     state: started
-    daemon_reload: yes

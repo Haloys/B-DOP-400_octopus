@@ -1,29 +1,46 @@
-- name: Install prerequisites for PostgreSQL repository
+- name: Install required tools
   apt:
-    name:
-      - curl
-      - ca-certificates
-      - gnupg
+    name: [gpg, acl, wget]
+    update_cache: yes
     state: present
 
-- name: Add PostgreSQL apt repository key
+- name: Install PostgreSQL Python dependencies
+  apt:
+    name: python3-psycopg2
+    state: present
+
+- name: Allow PostgreSQL through firewall
+  ufw:
+    rule: allow
+    port: 5432
+    proto: tcp
+
+- name: Add PostgreSQL apt key
   apt_key:
     url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
     state: present
 
-- name: Add PostgreSQL 16 repository
+- name: Add PostgreSQL repository
   apt_repository:
-    repo: deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main
-    state: present
-    filename: pgdg
-
-- name: Install PostgreSQL 16
-  apt:
-    name: postgresql-16
+    repo: 'deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main'
     state: present
     update_cache: yes
 
-- name: Copy PostgreSQL client authentication configuration file
+- name: Install PostgreSQL client and server
+  apt:
+    name: [postgresql-16, postgresql-client-16]
+    state: present
+
+- name: Copy PostgreSQL config file
+  copy:
+    src: postgresql.conf
+    dest: /etc/postgresql/16/main/postgresql.conf
+    owner: postgres
+    group: postgres
+    mode: '0644'
+  register: pg_config_changed
+
+- name: Copy PostgreSQL user config file
   copy:
     src: pg_hba.conf
     dest: /etc/postgresql/16/main/pg_hba.conf
@@ -32,45 +49,56 @@
     mode: '0640'
   register: pg_hba_changed
 
-- name: Enable remote connections to PostgreSQL
-  lineinfile:
-    dest: /etc/postgresql/16/main/postgresql.conf
-    regexp: "^#listen_addresses"
-    line: "listen_addresses = '*'"
-  register: pg_listen_changed
-
 - name: Restart PostgreSQL if config changed
   service:
     name: postgresql
     state: restarted
-  when: pg_hba_changed.changed or pg_listen_changed.changed
+  when: pg_config_changed.changed or pg_hba_changed.changed
 
-- name: Create PostgreSQL user
-  become: yes
-  become_user: postgres
-  postgresql_user:
-    name: "{{ postgresql_user }}"
-    password: "{{ postgresql_password }}"
-    state: present
-  no_log: true
-
-- name: Create PostgreSQL database
-  become: yes
-  become_user: postgres
-  postgresql_db:
-    name: "{{ postgresql_db }}"
-    owner: "{{ postgresql_user }}"
-    state: present
-
-- name: Initialize database schema
-  become: yes
-  become_user: postgres
-  postgresql_query:
-    db: "{{ postgresql_db }}"
-    path_to_script: "{{ playbook_dir }}/roles/postgresql/files/schema.sql"
-
-- name: Ensure PostgreSQL service is enabled
+- name: Ensure PostgreSQL is enabled and started
   service:
     name: postgresql
     enabled: yes
     state: started
+
+- name: Create database user
+  postgresql_user:
+    name: "{{ postgresql_user }}"
+    password: "{{ postgresql_password }}"
+    state: present
+  become: yes
+  become_user: postgres
+
+- name: Create database
+  postgresql_db:
+    name: "{{ postgresql_db }}"
+    owner: "{{ postgresql_user }}"
+    state: present
+  become: yes
+  become_user: postgres
+
+- name: Copy schema.sql file
+  copy:
+    src: schema.sql
+    dest: /tmp/schema.sql
+    mode: '0644'
+  register: schema_file
+
+- name: Execute schema.sql to create tables
+  postgresql_query:
+    db: "{{ postgresql_db }}"
+    path_to_script: /tmp/schema.sql
+    login_user: postgres
+  become: yes
+  become_user: postgres
+  when: schema_file.changed
+
+- name: Grant privileges to user on votes table
+  postgresql_privs:
+    db: "{{ postgresql_db }}"
+    privs: ALL
+    type: table
+    obj: votes
+    role: "{{ postgresql_user }}"
+  become: yes
+  become_user: postgres

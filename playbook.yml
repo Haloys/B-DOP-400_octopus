@@ -1,41 +1,51 @@
 - name: Apply base configuration to all nodes
   hosts: all
   become: yes
-  serial: 1
+  gather_facts: yes
   roles:
     - base
 
 - name: Configure Redis server
   hosts: redis
   become: yes
-  serial: 1
+  gather_facts: yes
   roles:
     - redis
 
 - name: Configure PostgreSQL server
   hosts: postgresql
   become: yes
-  serial: 1
+  gather_facts: yes
   roles:
     - postgresql
 
 - name: Configure poll application
   hosts: poll
   become: yes
-  serial: 1
+  gather_facts: yes
   roles:
     - poll
 
 - name: Configure worker application
   hosts: worker
   become: yes
-  serial: 1
+  gather_facts: yes
   roles:
     - worker
 
 - name: Configure result application
   hosts: result
   become: yes
-  serial: 1
+  gather_facts: yes
   roles:
     - result
+
+- name: Ensure worker service is fresh after all configurations
+  hosts: worker
+  become: yes
+  tasks:
+    - name: Restart worker service
+      systemd:
+        name: worker
+        state: restarted
+        daemon_reload: yes
